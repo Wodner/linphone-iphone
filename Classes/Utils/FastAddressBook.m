@@ -57,6 +57,23 @@
   	return nil;
 }
 
++ (Contact *)getContactWithContactIdentifier:(NSString *)identifier {
+    CNContactStore *store = [[CNContactStore alloc] init];
+    NSError *error;
+    NSArray *keysToFetch = @[
+                             CNContactEmailAddressesKey, CNContactPhoneNumbersKey,
+                             CNContactInstantMessageAddressesKey, CNInstantMessageAddressUsernameKey,
+                             CNContactFamilyNameKey, CNContactGivenNameKey, CNContactPostalAddressesKey,
+                             CNContactIdentifierKey, CNContactImageDataKey, CNContactNicknameKey,
+                             CNContactSocialProfilesKey
+                             ];
+    CNContact *cn = [store unifiedContactWithIdentifier:identifier
+                                            keysToFetch:keysToFetch
+                                                  error:&error];
+    Contact *contact = [[Contact alloc] initWithCNContact:cn];
+    return contact;
+}
+
 + (Contact *)getContactWithAddress:(const LinphoneAddress *)address {
 	Contact *contact = nil;
 	if (address) {
@@ -148,6 +165,7 @@
 	[_addressBookMap removeAllObjects];
 	_addressBookMap = [NSMutableDictionary dictionary];
 	CNEntityType entityType = CNEntityTypeContacts;
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:@"group.belledonne-communications.linphone.siri"];
 	[store requestAccessForEntityType:entityType completionHandler:^(BOOL granted, NSError *_Nullable error) {
 		BOOL success = FALSE;
 		if(granted){
@@ -161,7 +179,8 @@
 									 CNContactFamilyNameKey, CNContactGivenNameKey, CNContactNicknameKey,
 									 CNContactPostalAddressesKey, CNContactIdentifierKey,
 									 CNInstantMessageAddressUsernameKey, CNContactInstantMessageAddressesKey,
-									 CNInstantMessageAddressUsernameKey, CNContactImageDataKey, CNContactOrganizationNameKey
+                                     CNInstantMessageAddressUsernameKey, CNContactImageDataKey, CNContactOrganizationNameKey,
+                                     CNContactSocialProfilesKey
 									 ];
 			CNContactFetchRequest *request = [[CNContactFetchRequest alloc] initWithKeysToFetch:keysToFetch];
 
@@ -173,6 +192,10 @@
 
 					dispatch_async(dispatch_get_main_queue(), ^{
 						Contact *newContact = [[Contact alloc] initWithCNContact:contact];
+                        NSMutableDictionary *addresses = [NSMutableDictionary dictionaryWithDictionary:[defaults objectForKey:@"addresses"]] ?: [NSMutableDictionary dictionary];
+                        NSArray *sipAddr = [NSArray arrayWithArray:newContact.sipAddresses];
+                        [addresses setObject:sipAddr forKey:[newContact.displayName lowercaseString]];
+                        [defaults setObject:addresses forKey:@"addresses"];
 						[self registerAddrsFor:newContact];
 					});
 
@@ -202,6 +225,10 @@
 	[NSNotificationCenter.defaultCenter
 	 postNotificationName:kLinphoneAddressBookUpdate
 	 object:self];
+    if (linphone_core_get_proxy_config_list(LC) != NULL)
+        [defaults setObject:@YES forKey:@"loggedIn"];
+    else
+        [defaults setObject:@NO forKey:@"loggedIn"];
 }
 
 -(void) updateAddressBook:(NSNotification*) notif {
@@ -315,7 +342,8 @@
     CNContactEmailAddressesKey, CNContactPhoneNumbersKey,
     CNContactFamilyNameKey, CNContactGivenNameKey, CNContactPostalAddressesKey,
     CNContactIdentifierKey, CNContactInstantMessageAddressesKey,
-    CNInstantMessageAddressUsernameKey, CNContactImageDataKey
+    CNInstantMessageAddressUsernameKey, CNContactImageDataKey,
+    CNContactSocialProfilesKey
   ];
   CNMutableContact *mCNContact =
       [[store unifiedContactWithIdentifier:acontact.identifier
@@ -334,7 +362,8 @@
 							 CNContactEmailAddressesKey, CNContactPhoneNumbersKey,
 							 CNContactInstantMessageAddressesKey, CNInstantMessageAddressUsernameKey,
 							 CNContactFamilyNameKey, CNContactGivenNameKey, CNContactPostalAddressesKey,
-							 CNContactIdentifierKey, CNContactImageDataKey, CNContactNicknameKey
+                             CNContactIdentifierKey, CNContactImageDataKey, CNContactNicknameKey,
+                             CNContactSocialProfilesKey
 							 ];
 	CNMutableContact *mCNContact =
 	[[store unifiedContactWithIdentifier:contact.identifier
@@ -403,7 +432,8 @@
     CNContactEmailAddressesKey, CNContactPhoneNumbersKey,
     CNContactInstantMessageAddressesKey, CNInstantMessageAddressUsernameKey,
     CNContactFamilyNameKey, CNContactGivenNameKey, CNContactPostalAddressesKey,
-    CNContactIdentifierKey, CNContactImageDataKey, CNContactNicknameKey
+    CNContactIdentifierKey, CNContactImageDataKey, CNContactNicknameKey,
+    CNContactSocialProfilesKey
   ];
   CNMutableContact *mCNContact =
       [[store unifiedContactWithIdentifier:contact.identifier
@@ -419,6 +449,7 @@
 	  [mCNContact setEmailAddresses:contact.person.emailAddresses];
 	  [mCNContact
 		  setInstantMessageAddresses:contact.person.instantMessageAddresses];
+        [mCNContact setSocialProfiles:contact.person.socialProfiles];
 	  [mCNContact setImageData:UIImageJPEGRepresentation(contact.avatar, 0.9f)];
 
 	  [saveRequest updateContact:mCNContact];

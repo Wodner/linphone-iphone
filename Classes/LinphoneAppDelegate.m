@@ -31,6 +31,8 @@
 #include "LinphoneManager.h"
 #include "linphone/linphonecore.h"
 
+#import <Intents/Intents.h>
+
 @implementation LinphoneAppDelegate
 
 @synthesize configURL;
@@ -49,7 +51,70 @@
 	[[UIApplication sharedApplication] setDelegate:self];
 }
 
-#pragma mark -
+#pragma mark - Intent handling
+
+- (BOOL)application:(UIApplication *)application continueUserActivity:(NSUserActivity *)userActivity restorationHandler:(void (^)(NSArray * _Nullable))restorationHandler {
+    INIntent *i = userActivity.interaction.intent;
+    if ([i isMemberOfClass:INStartAudioCallIntent.class]) {
+        if (((INStartAudioCallIntentResponse *)userActivity.interaction.intentResponse).code == INStartAudioCallIntentResponseCodeFailureAppConfigurationRequired)
+            return NO;
+        INStartAudioCallIntent *intent = (INStartAudioCallIntent *)i;
+        INPerson *person = intent.contacts[0];
+        if (person.personHandle != nil && (person.personHandle.type == CXHandleTypeGeneric || person.personHandle.type == INPersonHandleTypeUnknown))
+            [LinphoneManager.instance call:[LinphoneUtils normalizeSipOrPhoneAddress:person.personHandle.value] withVideo:NO];
+        else {
+            Contact *contact = [FastAddressBook getContactWithContactIdentifier:person.contactIdentifier];
+            if (contact.sipAddresses.count > 0)
+                [LinphoneManager.instance call:[LinphoneUtils normalizeSipOrPhoneAddress:contact.sipAddresses[0]] withVideo:NO];
+            else
+                [LinphoneManager.instance call:[LinphoneUtils normalizeSipOrPhoneAddress:person.personHandle.value] withVideo:NO];
+        }
+        return YES;
+    } else if ([i isMemberOfClass:INStartVideoCallIntent.class]) {
+        if (((INStartVideoCallIntentResponse *)userActivity.interaction.intentResponse).code == INStartVideoCallIntentResponseCodeFailureAppConfigurationRequired)
+            return NO;
+        INStartVideoCallIntent *intent = (INStartVideoCallIntent *)i;
+        INPerson *person = intent.contacts[0];
+        if (person.personHandle != nil && (person.personHandle.type == CXHandleTypeGeneric || person.personHandle.type == INPersonHandleTypeUnknown))
+            [LinphoneManager.instance call:[LinphoneUtils normalizeSipOrPhoneAddress:person.personHandle.value] withVideo:YES];
+        else {
+            Contact *contact = [FastAddressBook getContactWithContactIdentifier:person.contactIdentifier];
+            if (contact.sipAddresses.count > 0)
+                [LinphoneManager.instance call:[LinphoneUtils normalizeSipOrPhoneAddress:contact.sipAddresses[0]] withVideo:YES];
+            else
+                [LinphoneManager.instance call:[LinphoneUtils normalizeSipOrPhoneAddress:person.personHandle.value] withVideo:YES];
+        }
+        return YES;
+    } else if ([i isMemberOfClass:INSendMessageIntent.class]) {
+        if (((INSendMessageIntentResponse *)userActivity.interaction.intentResponse).code == INSendMessageIntentResponseCodeFailureRequiringAppLaunch)
+            return NO;
+        INSendMessageIntent *intent = (INSendMessageIntent *)i;
+        INPerson *person = intent.recipients[0];
+        if (person.contactIdentifier && ![person.contactIdentifier isEqual:@""]) {
+            // From native contact view, just go to the room as there's no text provided
+            Contact *contact = [FastAddressBook getContactWithContactIdentifier:person.contactIdentifier];
+            if (contact.sipAddresses.count > 0) {
+                LinphoneChatRoom *cr = linphone_core_get_chat_room(LC, [LinphoneUtils normalizeSipOrPhoneAddress:contact.sipAddresses[0]]);
+                [PhoneMainView.instance goToChatRoom:cr];
+            } else
+                return NO;
+        } else {
+            // Siri Intent, with text provided
+            NSString *text = intent.content;
+            LinphoneChatRoom *cr = linphone_core_get_chat_room(LC, [LinphoneUtils normalizeSipOrPhoneAddress:person.personHandle.value]);
+            LinphoneChatMessage *msg = (cr && text && ![text isEqualToString:@""]) ? linphone_chat_room_create_message(cr, text.UTF8String) : NULL;
+            if (!cr || !msg)
+                return NO;
+            linphone_chat_room_send_chat_message(cr, msg);
+            linphone_chat_message_unref(msg);
+            [PhoneMainView.instance goToChatRoom:cr];
+        }
+        return YES;
+    }
+    return NO;
+}
+
+#pragma mark - Lifecycle
 
 - (void)applicationDidEnterBackground:(UIApplication *)application {
 	LOGI(@"%@", NSStringFromSelector(_cmd));
@@ -290,6 +355,8 @@
     //output what state the app is in. This will be used to see when the app is started in the background
     LOGI(@"app launched with state : %li", (long)application.applicationState);
     LOGI(@"FINISH LAUNCHING WITH OPTION : %@", launchOptions.description);
+    
+    [INPreferences requestSiriAuthorization:^(INSiriAuthorizationStatus status){}];
     
     UIApplicationShortcutItem *shortcutItem = [launchOptions objectForKey:@"UIApplicationLaunchOptionsShortcutItemKey"];
     if (shortcutItem) {

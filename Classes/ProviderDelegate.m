@@ -37,10 +37,10 @@
 	CXProviderConfiguration *config = [[CXProviderConfiguration alloc]
 		initWithLocalizedName:[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleDisplayName"]];
 	config.ringtoneSound = @"notes_of_the_optimistic.caf";
-	config.supportsVideo = FALSE;
+	config.supportsVideo = YES;
 	config.iconTemplateImageData = UIImagePNGRepresentation([UIImage imageNamed:@"callkit_logo"]);
 
-	NSArray *ar = @[ [NSNumber numberWithInt:(int)CXHandleTypeGeneric] ];
+	NSArray *ar = @[ [NSNumber numberWithInt:(int)CXHandleTypeGeneric], [NSNumber numberWithInt:(int)CXHandleTypePhoneNumber] ];
 	NSSet *handleTypes = [[NSSet alloc] initWithArray:ar];
 	[config setSupportedHandleTypes:handleTypes];
 	[config setMaximumCallGroups:2];
@@ -129,6 +129,13 @@
 
 - (void)provider:(CXProvider *)provider performStartCallAction:(CXStartCallAction *)action {
 	LOGD(@"CallKit : Starting Call");
+    CXCallUpdate *update = [[CXCallUpdate alloc] init];
+    update.remoteHandle = action.handle;
+    update.localizedCallerName = action.contactIdentifier;
+    
+    _pendingCallVideo = action.video;
+    
+    [self.provider reportCallWithUUID:action.callUUID updated:update];
 	// To restart Audio Unit
 	[self configAudioSession:[AVAudioSession sharedInstance]];
 	[action fulfill];
@@ -246,7 +253,7 @@
 		}
 	} else {
 		if (_pendingAddr) {
-			[LinphoneManager.instance doCall:_pendingAddr];
+			[LinphoneManager.instance doCall:_pendingAddr withVideo:_pendingCallVideo];
 		} else {
 			LOGE(@"CallKit : No pending call");
 		}
