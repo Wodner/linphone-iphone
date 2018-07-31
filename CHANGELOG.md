@@ -20,6 +20,8 @@ Group changes to describe their impact on the project, as follows:
 - Latest Chatrooms widget
 - Homescreen quick action : New message
 - Rich message notifications with Linphone UI
+- Siri support
+- Intent handling from system Contacts app & call history
 
 ### Changed
 - Use of Photokit instead of Asset Library for image handling
